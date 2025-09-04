@@ -2,39 +2,87 @@
 
 
 #include "RTCharacter.h"
-#include "Components/GameFrameworkComponentManager.h"
 
-// Sets default values
-ARTCharacter::ARTCharacter()
+#include "AbilitySystem/Core/RTAbilitySystemComponent.h"
+#include "Components/GameFrameworkComponentManager.h"
+#include "Components/RTPawnExtComp.h"
+
+
+ARTCharacter::ARTCharacter(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
-	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
+	PrimaryActorTick.bCanEverTick = false;
+
+	PawnExtComponent = CreateDefaultSubobject<URTPawnExtComp>(TEXT("PawnExtensionComponent"));
+	PawnExtComponent->OnAbilitySystemInitialized_RegisterAndCall(FSimpleMulticastDelegate::FDelegate::CreateUObject(this,&ThisClass::OnAbilitySystemInitialized));
+	PawnExtComponent->OnAbilitySystemUninitialized_Register(FSimpleMulticastDelegate::FDelegate::CreateUObject(this,&ThisClass::OnAbilitySystemUninitialized));
+
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = true;
+	bUseControllerRotationRoll = false;
 }
 
 void ARTCharacter::PreInitializeComponents()
 {
 	Super::PreInitializeComponents();
+	UGameFrameworkComponentManager::AddGameFrameworkComponentReceiver(this);
 }
 
-void ARTCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+URTAbilitySystemComponent* ARTCharacter::GetRTAbilitySystemComponent() const
 {
-	Super::EndPlay(EndPlayReason);
+	return Cast<URTAbilitySystemComponent>(GetAbilitySystemComponent());
 }
 
-// Called when the game starts or when spawned
+UAbilitySystemComponent* ARTCharacter::GetAbilitySystemComponent() const
+{
+	return PawnExtComponent->GetRTAbilitySystemComponent();
+}
+
+void ARTCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	PawnExtComponent->HandleControllerChanged();
+}
+
+void ARTCharacter::UnPossessed()
+{
+	Super::UnPossessed();
+
+	PawnExtComponent->HandleControllerChanged();
+}
+
+void ARTCharacter::OnAbilitySystemInitialized()
+{
+	URTAbilitySystemComponent* ASC = GetRTAbilitySystemComponent();
+	check(ASC);
+
+	UE_LOG(LogTemp,Warning,TEXT("Ability System Initialized"));
+}
+
+void ARTCharacter::OnAbilitySystemUninitialized()
+{
+	UE_LOG(LogTemp,Warning,TEXT("Ability System Uninitialized"));
+}
+
 void ARTCharacter::BeginPlay()
 {
+	UGameFrameworkComponentManager::SendGameFrameworkComponentExtensionEvent(this,UGameFrameworkComponentManager::NAME_GameActorReady);
 	Super::BeginPlay();
 	
 }
 
-// Called every frame
+void ARTCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UGameFrameworkComponentManager::RemoveGameFrameworkComponentReceiver(this);
+	Super::EndPlay(EndPlayReason);
+}
+
 void ARTCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 }
 
-// Called to bind functionality to input
 void ARTCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
