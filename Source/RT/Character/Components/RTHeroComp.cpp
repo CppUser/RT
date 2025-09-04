@@ -70,14 +70,29 @@ void URTHeroComp::HandleChangeInitState(UGameFrameworkComponentManager* Manager,
 	{
 		APawn* Pawn = GetPawn<APawn>();
 		ARTPlayerController* PC = GetController<ARTPlayerController>();
-		if (!ensure(Pawn && PC))
+		
+		if (!Pawn || !PC)
 		{
+			UE_LOG(LogTemp, Warning, TEXT("RTHeroComp::HandleChangeInitState: Pawn (%s) or PC (%s) is null, skipping initialization"), 
+				*GetNameSafe(Pawn), *GetNameSafe(PC));
+			return;
+		}
+
+		if (Pawn->IsPendingKillPending() || PC->IsPendingKillPending())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("RTHeroComp::HandleChangeInitState: Pawn or PC is pending kill, skipping initialization"));
+			return;
+		}
+
+		if (Pawn->GetController() != PC)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("RTHeroComp::HandleChangeInitState: Pawn controller mismatch, skipping initialization"));
 			return;
 		}
 
 		if (URTPawnExtComp* PawnExtComponent = URTPawnExtComp::FindPawnExtComponent(Pawn))
 		{
-			PawnExtComponent->InitializeAbilitySystem(PC->GetRTAbilitySystemComponent(),Pawn);
+			PawnExtComponent->InitializeAbilitySystem(PC->GetRTAbilitySystemComponent(), PC);
 		}
 
 		if (Pawn->InputComponent != nullptr)
@@ -85,7 +100,7 @@ void URTHeroComp::HandleChangeInitState(UGameFrameworkComponentManager* Manager,
 			InitializePlayerInput(Pawn->InputComponent);
 		}
 
-		//TODO: Determine Camera mode
+		//TODO: Determine camera mode
 	}
 }
 

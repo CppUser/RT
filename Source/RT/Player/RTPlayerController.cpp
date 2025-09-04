@@ -38,8 +38,8 @@ void ARTPlayerController::PostInitializeComponents()
 	// 	PawnExtComp->CheckDefaultInitialization();		
 	// }
 	
-	check(ASC);
-	ASC->InitAbilityActorInfo(this,GetPawn());
+	// check(ASC);
+	// ASC->InitAbilityActorInfo(this,GetPawn());
 
 	UWorld* World = GetWorld();
 	if (World && World->IsGameWorld())
@@ -163,6 +163,14 @@ void ARTPlayerController::OnExperienceLoaded(const URTExperience* CurrentExperie
 		if (const URTPawnData* NewPawnData = AsGameMode->GetPawnDataForController(this))
 		{
 			SetPawnData(NewPawnData);
+
+			if (APawn* ControlledPawn = GetPawn())
+			{
+				if (URTPawnExtComp* PawnExtComp = URTPawnExtComp::FindPawnExtComponent(ControlledPawn))
+				{
+					PawnExtComp->InitializeAbilitySystem(ASC, this);
+				}
+			}
 		}
 		else
 		{

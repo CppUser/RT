@@ -3,6 +3,7 @@
 
 #include "RTPawnExtComp.h"
 
+#include "AbilitySystem/RTAbilitySet.h"
 #include "AbilitySystem/Core/RTAbilitySystemComponent.h"
 #include "Components/GameFrameworkComponentManager.h"
 #include "Utils/RTGameplayTags.h"
@@ -96,29 +97,27 @@ void URTPawnExtComp::InitializeAbilitySystem(URTAbilitySystemComponent* InASC, A
 	check(InASC);
 	check(OwnerActor);
 
-	if (ASC == InASC)
+	APawn* Pawn = GetPawnChecked<APawn>();
+	
+	if (ASC == InASC && ASC->GetAvatarActor() == Pawn)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("ASC already initialized for pawn [%s]"), *GetNameSafe(Pawn));
 		return;
 	}
 
-	if (ASC)
+	if (ASC && ASC != InASC)
 	{
 		UninitializeAbilitySystem();
 	}
 
-	APawn* Pawn = GetPawnChecked<APawn>();
-	AActor* ExistingAvatar = InASC->GetAvatarActor();
-
-	UE_LOG(LogTemp,Warning,TEXT("Setting up ASC [%s] on pawn [%s] owner [%s], existing [%s] "), *GetNameSafe(InASC), *GetNameSafe(Pawn), *GetNameSafe(OwnerActor), *GetNameSafe(ExistingAvatar))
-
-	if ((ExistingAvatar != nullptr) && (ExistingAvatar != Pawn))
+	if (!PawnData)
 	{
-		ensure(!ExistingAvatar);
-		//TODO: Uninitialize other components
+		UE_LOG(LogTemp, Error, TEXT("Cannot initialize ASC without PawnData for pawn [%s]"), *GetNameSafe(Pawn));
+		return;
 	}
 
 	ASC = InASC;
-	ASC->InitAbilityActorInfo(OwnerActor,Pawn);
+	ASC->InitAbilityActorInfo(OwnerActor, Pawn);
 
 	OnAbilitySystemInitialized.Broadcast();
 }
@@ -180,20 +179,37 @@ void URTPawnExtComp::SetupPlayerInputComponent()
 
 void URTPawnExtComp::HandleControllerChanged()
 {
-	if (ASC && (ASC->GetAvatarActor() == GetPawnChecked<APawn>()))
+	APawn* Pawn = GetPawn<APawn>();
+	
+	if (!Pawn || Pawn->IsPendingKillPending())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("RTPawnExtComp::HandleControllerChanged: Pawn is null or pending kill"));
+		return;
+	}
+
+	if (ASC && (ASC->GetAvatarActor() == Pawn))
 	{
 		ensure(ASC->AbilityActorInfo->OwnerActor == ASC->GetOwnerActor());
-		if (ASC->GetOwnerActor() == nullptr)
+		
+		AController* NewController = Pawn->GetController();
+		
+		if (NewController == nullptr)
 		{
+			UE_LOG(LogTemp, Log, TEXT("RTPawnExtComp::HandleControllerChanged: Controller is null, uninitializing ASC for pawn [%s]"), *GetNameSafe(Pawn));
 			UninitializeAbilitySystem();
 		}
 		else
 		{
+			UE_LOG(LogTemp, Log, TEXT("RTPawnExtComp::HandleControllerChanged: Refreshing ASC for pawn [%s] with controller [%s]"), 
+				*GetNameSafe(Pawn), *GetNameSafe(NewController));
 			ASC->RefreshAbilityActorInfo();
 		}
 	}
 
-	CheckDefaultInitialization();
+	if (Pawn->GetController())
+	{
+		CheckDefaultInitialization();
+	}
 }
 
 void URTPawnExtComp::OnRegister()
@@ -224,3 +240,5 @@ void URTPawnExtComp::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	UninitializeAbilitySystem();
 	Super::EndPlay(EndPlayReason);
 }
+
+

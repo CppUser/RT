@@ -19,6 +19,8 @@ class ARTGameMode : public AGameModeBase
 
 public:
 	ARTGameMode(const FObjectInitializer& ObjInit = FObjectInitializer::Get());
+
+	virtual void BeginPlay() override;
 	
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
@@ -51,6 +53,14 @@ private:
 
 	void OnExperienceLoaded(const URTExperience* CurrentExperience);
 	bool IsExperienceLoaded() const;
+
+private:
+	TSet<TWeakObjectPtr<APlayerController>> InitializingPlayers;
+	bool bExperienceLoaded = false;
+
+	FTimerHandle DebugTimerHandle;
+	FTimerHandle ProcessedControllersTimerHandle;
+	FTimerHandle FailedRestartTimerHandle;
 };
 
 

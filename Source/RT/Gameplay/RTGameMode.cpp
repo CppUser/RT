@@ -2,6 +2,7 @@
 
 #include "RTGameMode.h"
 
+#include "EngineUtils.h"
 #include "RTGameState.h"
 #include "RTWorldSettings.h"
 #include "Character/RTCharacter.h"
@@ -23,6 +24,32 @@ ARTGameMode::ARTGameMode(const FObjectInitializer& ObjInit) : Super(ObjInit)
 	PlayerControllerClass = ARTPlayerController::StaticClass();
 	GameStateClass = ARTGameState::StaticClass();
 	HUDClass = ARTHUD::StaticClass();
+}
+
+void ARTGameMode::BeginPlay()
+{
+	Super::BeginPlay();
+
+	GetWorld()->GetTimerManager().SetTimer(
+		DebugTimerHandle,
+		[this]()
+		{
+			int32 PlayerCount = GetWorld()->GetNumPlayerControllers();
+			int32 PawnCount = 0;
+            
+			for (TActorIterator<APawn> PawnIt(GetWorld()); PawnIt; ++PawnIt)
+			{
+				if (PawnIt->IsA<ARTCharacter>())
+				{
+					PawnCount++;
+				}
+			}
+            
+			UE_LOG(LogTemp, Log, TEXT("DEBUG: Players: %d, RT Characters: %d"), PlayerCount, PawnCount);
+		},
+		2.0f, // Every 2 seconds
+		true  // Loop
+	);
 }
 
 const URTPawnData* ARTGameMode::GetPawnDataForController(const AController* InController) const
@@ -59,9 +86,10 @@ const URTPawnData* ARTGameMode::GetPawnDataForController(const AController* InCo
 
 void ARTGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
 {
+	UE_LOG(LogTemp, Log, TEXT("=== GAME INITIALIZATION START ==="));
 	Super::InitGame(MapName, Options, ErrorMessage);
-
-	GetWorld()->GetTimerManager().SetTimerForNextTick(this,&ThisClass::PrepForExperienceLoading);
+    
+	GetWorld()->GetTimerManager().SetTimerForNextTick(this, &ThisClass::PrepForExperienceLoading);
 }
 
 void ARTGameMode::InitGameState()
@@ -118,17 +146,49 @@ void ARTGameMode::OnExperienceDataReady(FPrimaryAssetId ExperienceId, const FStr
 
 void ARTGameMode::OnExperienceLoaded(const URTExperience* CurrentExperience)
 {
+	UE_LOG(LogTemp, Log, TEXT("Experience loaded, checking players for respawn..."));
+
+	bExperienceLoaded = true;
+	InitializingPlayers.Empty();
+	
+	static TSet<TWeakObjectPtr<APlayerController>> ProcessedControllers;
+	
+	TArray<APlayerController*> ControllersToRestart;
+	
 	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
 	{
 		APlayerController* PC = Cast<APlayerController>(*Iterator);
-		if ((PC != nullptr) && (PC->GetPawn() == nullptr))
+		if (!PC || ProcessedControllers.Contains(PC))
 		{
-			if (PlayerCanRestart(PC))
-			{
-				RestartPlayer(PC);
-			}
+			continue;
+		}
+		
+		// ✅ FIX: Only restart if player actually needs a pawn and can restart
+		if (PC->GetPawn() == nullptr && PlayerCanRestart(PC))
+		{
+			ControllersToRestart.Add(PC);
+			ProcessedControllers.Add(PC);
+			UE_LOG(LogTemp, Log, TEXT("Marking player for restart: %s"), *GetNameSafe(PC));
+		}
+		else if (PC->GetPawn())
+		{
+			ProcessedControllers.Add(PC);
+			UE_LOG(LogTemp, Log, TEXT("Player already has pawn: %s -> %s"), *GetNameSafe(PC), *GetNameSafe(PC->GetPawn()));
 		}
 	}
+	
+	UE_LOG(LogTemp, Log, TEXT("Total players to restart: %d"), ControllersToRestart.Num());
+	
+	// ✅ FIX: Restart players one at a time to prevent cascading issues
+	for (APlayerController* PC : ControllersToRestart)
+	{
+		if (IsValid(PC) && PC->GetPawn() == nullptr)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Restarting player: %s"), *GetNameSafe(PC));
+			RestartPlayer(PC);
+		}
+	}
+	
 }
 
 bool ARTGameMode::IsExperienceLoaded() const
@@ -138,6 +198,7 @@ bool ARTGameMode::IsExperienceLoaded() const
 	check(ExperienceManager);
 	return ExperienceManager->IsExperienceLoaded();
 }
+
 
 UClass* ARTGameMode::GetDefaultPawnClassForController_Implementation(AController* InController)
 {
@@ -154,13 +215,26 @@ UClass* ARTGameMode::GetDefaultPawnClassForController_Implementation(AController
 
 APawn* ARTGameMode::SpawnDefaultPawnAtTransform_Implementation(AController* NewPlayer, const FTransform& SpawnTransform)
 {
+	if (APlayerController* PC = Cast<APlayerController>(NewPlayer))
+	{
+		if (PC->GetPawn())
+		{
+			UE_LOG(LogTemp, Warning, TEXT("Player %s already has pawn %s, not spawning another"), 
+				   *GetNameSafe(PC), *GetNameSafe(PC->GetPawn()));
+			return PC->GetPawn();
+		}
+	}
+	
 	FActorSpawnParameters SpawnInfo;
 	SpawnInfo.Instigator = GetInstigator();
-	SpawnInfo.ObjectFlags |= RF_Transient;	// Never save the default player pawns into a map.
+	SpawnInfo.ObjectFlags |= RF_Transient;
 	SpawnInfo.bDeferConstruction = true;
 
 	if (UClass* PawnClass = GetDefaultPawnClassForController(NewPlayer))
 	{
+		UE_LOG(LogTemp, Log, TEXT("Spawning pawn of class %s for controller %s"), 
+			   *GetNameSafe(PawnClass), *GetNameSafe(NewPlayer));
+               
 		if (APawn* SpawnedPawn = GetWorld()->SpawnActor<APawn>(PawnClass, SpawnTransform, SpawnInfo))
 		{
 			if (URTPawnExtComp* PawnExtComp = URTPawnExtComp::FindPawnExtComponent(SpawnedPawn))
@@ -171,24 +245,17 @@ APawn* ARTGameMode::SpawnDefaultPawnAtTransform_Implementation(AController* NewP
 				}
 				else
 				{
-					UE_LOG(LogTemp, Error, TEXT("Game mode was unable to set PawnData on the spawned pawn [%s]."), *GetNameSafe(SpawnedPawn));
+					UE_LOG(LogTemp, Error, TEXT("No PawnData available for controller %s"), *GetNameSafe(NewPlayer));
 				}
 			}
 
 			SpawnedPawn->FinishSpawning(SpawnTransform);
-
+			UE_LOG(LogTemp, Log, TEXT("Successfully spawned pawn %s"), *GetNameSafe(SpawnedPawn));
 			return SpawnedPawn;
 		}
-		else
-		{
-			UE_LOG(LogTemp, Error, TEXT("Game mode was unable to spawn Pawn of class [%s] at [%s]."), *GetNameSafe(PawnClass), *SpawnTransform.ToHumanReadableString());
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("Game mode was unable to spawn Pawn due to NULL pawn class."));
 	}
 
+	UE_LOG(LogTemp, Error, TEXT("Failed to spawn pawn for controller %s"), *GetNameSafe(NewPlayer));
 	return nullptr;
 }
 
@@ -199,9 +266,19 @@ bool ARTGameMode::ShouldSpawnAtStartSpot(AController* Player)
 
 void ARTGameMode::HandleStartingNewPlayer_Implementation(APlayerController* NewPlayer)
 {
-	if (IsExperienceLoaded())
+	if (IsExperienceLoaded() && NewPlayer && !NewPlayer->GetPawn())
 	{
+		UE_LOG(LogTemp, Log, TEXT("HandleStartingNewPlayer: Starting new player %s"), *GetNameSafe(NewPlayer));
 		Super::HandleStartingNewPlayer_Implementation(NewPlayer);
+	}
+	else if (NewPlayer && NewPlayer->GetPawn())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HandleStartingNewPlayer: Player %s already has pawn %s, skipping"), 
+			*GetNameSafe(NewPlayer), *GetNameSafe(NewPlayer->GetPawn()));
+	}
+	else if (!IsExperienceLoaded())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HandleStartingNewPlayer: Experience not loaded yet for player %s"), *GetNameSafe(NewPlayer));
 	}
 }
 
@@ -229,6 +306,18 @@ void ARTGameMode::FinishRestartPlayer(AController* NewPlayer, const FRotator& St
 
 bool ARTGameMode::PlayerCanRestart_Implementation(APlayerController* Player)
 {
+	if (!Player || Player->IsPendingKillPending())
+	{
+		return false;
+	}
+	
+	if (Player->GetPawn() && !Player->GetPawn()->IsPendingKillPending())
+	{
+		UE_LOG(LogTemp, Log, TEXT("PlayerCanRestart: Player %s already has valid pawn %s"), 
+			*GetNameSafe(Player), *GetNameSafe(Player->GetPawn()));
+		return false;
+	}
+	
 	return ControllerCanRestart(Player);
 }
 
@@ -248,32 +337,31 @@ void ARTGameMode::GenericPlayerInitialization(AController* NewPlayer)
 
 void ARTGameMode::FailedToRestartPlayer(AController* NewPlayer)
 {
+	static TMap<TWeakObjectPtr<AController>, int32> FailedAttempts;
+	
+	int32& Attempts = FailedAttempts.FindOrAdd(NewPlayer);
+	Attempts++;
+	
+	UE_LOG(LogTemp, Error, TEXT("FailedToRestartPlayer: %s (Attempt %d)"), *GetNameSafe(NewPlayer), Attempts);
+	
+	if (Attempts >= 3)
+	{
+		UE_LOG(LogTemp, Error, TEXT("FailedToRestartPlayer: Giving up on %s after %d attempts"), *GetNameSafe(NewPlayer), Attempts);
+		return;
+	}
+	
 	Super::FailedToRestartPlayer(NewPlayer);
 
-	// If we tried to spawn a pawn and it failed, lets try again *note* check if there's actually a pawn class
-	// before we try this forever.
 	if (UClass* PawnClass = GetDefaultPawnClassForController(NewPlayer))
 	{
 		if (APlayerController* NewPC = Cast<APlayerController>(NewPlayer))
 		{
-			// If it's a player don't loop forever, maybe something changed and they can no longer restart if so stop trying.
 			if (PlayerCanRestart(NewPC))
 			{
-				RequestPlayerRestartNextFrame(NewPlayer, false);			
-			}
-			else
-			{
-				UE_LOG(LogTemp, Verbose, TEXT("FailedToRestartPlayer(%s) and PlayerCanRestart returned false, so we're not going to try again."), *GetPathNameSafe(NewPlayer));
+				RequestPlayerRestartNextFrame(NewPlayer, false);
 			}
 		}
-		else
-		{
-			RequestPlayerRestartNextFrame(NewPlayer, false);
-		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Verbose, TEXT("FailedToRestartPlayer(%s) but there's no pawn class so giving up."), *GetPathNameSafe(NewPlayer));
+		
 	}
 }
 
