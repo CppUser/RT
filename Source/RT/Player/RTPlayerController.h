@@ -7,6 +7,7 @@
 #include "AbilitySystemInterface.h"
 #include "RTPlayerController.generated.h"
 
+struct FAbilitySet_GrantedHandles;
 class URTExperience;
 class URTPawnData;
 class URTAbilitySystemComponent;
@@ -41,7 +42,6 @@ protected:
 
 	virtual void PostProcessInput(const float DeltaTime, const bool bGamePaused) override;
 	virtual void PlayerTick(float DeltaTime) override;
-
 	
 	void SetPawnData(const URTPawnData* InPawnData);
 private:
@@ -54,4 +54,6 @@ protected:
 private:
 	UPROPERTY(VisibleAnywhere,Category="RT|PlayerController")
 	TObjectPtr<URTAbilitySystemComponent> ASC;
+
+	TArray<FAbilitySet_GrantedHandles*> GrantedAbilitySetHandles;
 };

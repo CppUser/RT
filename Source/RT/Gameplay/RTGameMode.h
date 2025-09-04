@@ -21,6 +21,7 @@ public:
 	ARTGameMode(const FObjectInitializer& ObjInit = FObjectInitializer::Get());
 
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 	virtual UClass* GetDefaultPawnClassForController_Implementation(AController* InController) override;
@@ -57,6 +58,9 @@ private:
 private:
 	TSet<TWeakObjectPtr<APlayerController>> InitializingPlayers;
 	bool bExperienceLoaded = false;
+
+	TSet<TWeakObjectPtr<APlayerController>> ProcessedControllers;
+	TMap<TWeakObjectPtr<AController>, int32> FailedRestartAttempts;
 
 	FTimerHandle DebugTimerHandle;
 	FTimerHandle ProcessedControllersTimerHandle;

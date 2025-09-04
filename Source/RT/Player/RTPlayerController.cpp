@@ -33,13 +33,13 @@ void ARTPlayerController::PostInitializeComponents()
 	Super::PostInitializeComponents();
 
 	//TODO: Check if it needs to be done in preinit comp
-	// if (URTPawnExtComp* PawnExtComp = URTPawnExtComp::FindPawnExtComponent(GetPawn()))
-	// {
-	// 	PawnExtComp->CheckDefaultInitialization();		
-	// }
+	if (URTPawnExtComp* PawnExtComp = URTPawnExtComp::FindPawnExtComponent(GetPawn()))
+	{
+		PawnExtComp->CheckDefaultInitialization();		
+	}
 	
-	// check(ASC);
-	// ASC->InitAbilityActorInfo(this,GetPawn());
+	check(ASC);
+	ASC->InitAbilityActorInfo(this,GetPawn());
 
 	UWorld* World = GetWorld();
 	if (World && World->IsGameWorld())
@@ -75,6 +75,16 @@ void ARTPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ARTPlayerController::ReceivedPlayer()
 {
+	for (FAbilitySet_GrantedHandles* Handles : GrantedAbilitySetHandles)
+	{
+		if (Handles && ASC)
+		{
+			Handles->TakeFromAbilitySystem(ASC);
+		}
+		delete Handles;
+	}
+	GrantedAbilitySetHandles.Empty();
+	
 	UGameFrameworkComponentManager::SendGameFrameworkComponentExtensionEvent(this, UGameFrameworkComponentManager::NAME_GameActorReady);
 
 	Super::ReceivedPlayer();
@@ -136,6 +146,7 @@ void ARTPlayerController::PlayerTick(float DeltaTime)
 void ARTPlayerController::SetPawnData(const URTPawnData* InPawnData)
 {
 	check(InPawnData);
+	check(ASC);
 
 	if (PawnData)
 	{
@@ -149,7 +160,12 @@ void ARTPlayerController::SetPawnData(const URTPawnData* InPawnData)
 	{
 		if (AbilitySet)
 		{
-			AbilitySet->GiveToAbilitySystem(ASC,nullptr);
+			FAbilitySet_GrantedHandles* GrantedHandles = new FAbilitySet_GrantedHandles();
+			AbilitySet->GiveToAbilitySystem(ASC, GrantedHandles, this);
+			GrantedAbilitySetHandles.Add(GrantedHandles);
+            
+			UE_LOG(LogTemp, Log, TEXT("Granted ability set [%s] to player [%s]"), 
+				   *GetNameSafe(AbilitySet), *GetNameSafe(this));
 		}
 	}
 
@@ -162,8 +178,6 @@ void ARTPlayerController::OnExperienceLoaded(const URTExperience* CurrentExperie
 	{
 		if (const URTPawnData* NewPawnData = AsGameMode->GetPawnDataForController(this))
 		{
-			SetPawnData(NewPawnData);
-
 			if (APawn* ControlledPawn = GetPawn())
 			{
 				if (URTPawnExtComp* PawnExtComp = URTPawnExtComp::FindPawnExtComponent(ControlledPawn))
@@ -171,6 +185,8 @@ void ARTPlayerController::OnExperienceLoaded(const URTExperience* CurrentExperie
 					PawnExtComp->InitializeAbilitySystem(ASC, this);
 				}
 			}
+            
+			SetPawnData(NewPawnData);
 		}
 		else
 		{

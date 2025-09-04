@@ -28,7 +28,7 @@ void URTAbilitySystemComponent::InitAbilityActorInfo(AActor* InOwnerActor, AActo
 		{
 			URTGameplayAbility* AbilityCDO = CastChecked<URTGameplayAbility>(AbilitySpec.Ability);
 
-			if (AbilityCDO->GetInstancingPolicy() != EGameplayAbilityInstancingPolicy::NonInstanced)
+			if (AbilityCDO->GetInstancingPolicy() == EGameplayAbilityInstancingPolicy::InstancedPerActor)
 			{
 				TArray<UGameplayAbility*> Instances = AbilitySpec.GetAbilityInstances();
 				for (UGameplayAbility* AbilityInstance : Instances)
@@ -176,7 +176,7 @@ void URTAbilitySystemComponent::CancelAbilitiesByFunc(TShouldCancelAbilityFunc S
 
 		URTGameplayAbility* AbilityCDO = CastChecked<URTGameplayAbility>(AbilitySpec.Ability);
 
-		if (AbilityCDO->GetInstancingPolicy() != EGameplayAbilityInstancingPolicy::NonInstanced)
+		if (AbilityCDO->GetInstancingPolicy() != EGameplayAbilityInstancingPolicy::InstancedPerActor)
 		{
 			TArray<UGameplayAbility*> Instances = AbilitySpec.GetAbilityInstances();
 			for (UGameplayAbility* AbilityInstance : Instances)
@@ -314,8 +314,17 @@ void URTAbilitySystemComponent::AbilitySpecInputPressed(FGameplayAbilitySpec& Sp
 
 	if (Spec.IsActive())
 	{
-		//TODO: Fix deprecated issue
-		InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, Spec.Handle, Spec.ActivationInfo.GetActivationPredictionKey());
+		FGameplayAbilityActivationInfo ActivationInfo;
+        
+		if (Spec.GetAbilityInstances().Num() > 0)
+		{
+			if (UGameplayAbility* AbilityInstance = Spec.GetAbilityInstances()[0])
+			{
+				ActivationInfo = AbilityInstance->GetCurrentActivationInfo();
+			}
+		}
+        
+		InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputPressed, Spec.Handle, ActivationInfo.GetActivationPredictionKey());
 	}
 }
 
@@ -325,8 +334,17 @@ void URTAbilitySystemComponent::AbilitySpecInputReleased(FGameplayAbilitySpec& S
 
 	if (Spec.IsActive())
 	{
-		//TODO: Fix deprecated issue
-		InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, Spec.Handle, Spec.ActivationInfo.GetActivationPredictionKey());
+		FGameplayAbilityActivationInfo ActivationInfo;
+        
+		if (Spec.GetAbilityInstances().Num() > 0)
+		{
+			if (UGameplayAbility* AbilityInstance = Spec.GetAbilityInstances()[0])
+			{
+				ActivationInfo = AbilityInstance->GetCurrentActivationInfo();
+			}
+		}
+        
+		InvokeReplicatedEvent(EAbilityGenericReplicatedEvent::InputReleased, Spec.Handle, ActivationInfo.GetActivationPredictionKey());
 	}
 }
 

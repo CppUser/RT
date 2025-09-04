@@ -225,7 +225,7 @@ bool URTGameplayAbility::DoesAbilitySatisfyTagRequirements(const UAbilitySystemC
 	UAbilitySystemGlobals& AbilitySystemGlobals = UAbilitySystemGlobals::Get();
 	const FGameplayTag& BlockedTag = AbilitySystemGlobals.ActivateFailTagsBlockedTag;
 	const FGameplayTag& MissingTag = AbilitySystemGlobals.ActivateFailTagsMissingTag;
-
+	
 	if (AbilitySystemComponent.AreAbilityTagsBlocked(AbilityTags))
 	{
 		bBlocked = true;

@@ -30,16 +30,20 @@ void ARTGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
+#if !UE_BUILD_SHIPPING && WITH_EDITOR
 	GetWorld()->GetTimerManager().SetTimer(
 		DebugTimerHandle,
 		[this]()
 		{
-			int32 PlayerCount = GetWorld()->GetNumPlayerControllers();
-			int32 PawnCount = 0;
+			UWorld* World = GetWorld();
+			if (!World) return;
             
-			for (TActorIterator<APawn> PawnIt(GetWorld()); PawnIt; ++PawnIt)
+			int32 PlayerCount = World->GetNumPlayerControllers();
+            
+			int32 PawnCount = 0;
+			for (APawn* Pawn : TActorRange<APawn>(World))
 			{
-				if (PawnIt->IsA<ARTCharacter>())
+				if (Pawn && Pawn->IsA<ARTCharacter>())
 				{
 					PawnCount++;
 				}
@@ -47,9 +51,24 @@ void ARTGameMode::BeginPlay()
             
 			UE_LOG(LogTemp, Log, TEXT("DEBUG: Players: %d, RT Characters: %d"), PlayerCount, PawnCount);
 		},
-		2.0f, // Every 2 seconds
-		true  // Loop
+		5.0f, 
+		true
 	);
+#endif
+}
+
+void ARTGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (DebugTimerHandle.IsValid())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(DebugTimerHandle);
+	}
+    
+	ProcessedControllers.Empty();
+	FailedRestartAttempts.Empty();
+	InitializingPlayers.Empty();
+	
+	Super::EndPlay(EndPlayReason);
 }
 
 const URTPawnData* ARTGameMode::GetPawnDataForController(const AController* InController) const
@@ -150,21 +169,25 @@ void ARTGameMode::OnExperienceLoaded(const URTExperience* CurrentExperience)
 
 	bExperienceLoaded = true;
 	InitializingPlayers.Empty();
-	
-	static TSet<TWeakObjectPtr<APlayerController>> ProcessedControllers;
-	
+    
+	ProcessedControllers.Empty();
+    
 	TArray<APlayerController*> ControllersToRestart;
-	
+    
 	for (FConstPlayerControllerIterator Iterator = GetWorld()->GetPlayerControllerIterator(); Iterator; ++Iterator)
 	{
 		APlayerController* PC = Cast<APlayerController>(*Iterator);
-		if (!PC || ProcessedControllers.Contains(PC))
+		if (!PC || !IsValid(PC))
 		{
 			continue;
 		}
-		
-		// ✅ FIX: Only restart if player actually needs a pawn and can restart
-		if (PC->GetPawn() == nullptr && PlayerCanRestart(PC))
+        
+		if (ProcessedControllers.Contains(PC))
+		{
+			continue;
+		}
+        
+		if (!PC->GetPawn() && PlayerCanRestart(PC))
 		{
 			ControllersToRestart.Add(PC);
 			ProcessedControllers.Add(PC);
@@ -173,16 +196,16 @@ void ARTGameMode::OnExperienceLoaded(const URTExperience* CurrentExperience)
 		else if (PC->GetPawn())
 		{
 			ProcessedControllers.Add(PC);
-			UE_LOG(LogTemp, Log, TEXT("Player already has pawn: %s -> %s"), *GetNameSafe(PC), *GetNameSafe(PC->GetPawn()));
+			UE_LOG(LogTemp, Log, TEXT("Player already has pawn: %s -> %s"), 
+				   *GetNameSafe(PC), *GetNameSafe(PC->GetPawn()));
 		}
 	}
-	
+    
 	UE_LOG(LogTemp, Log, TEXT("Total players to restart: %d"), ControllersToRestart.Num());
-	
-	// ✅ FIX: Restart players one at a time to prevent cascading issues
+    
 	for (APlayerController* PC : ControllersToRestart)
 	{
-		if (IsValid(PC) && PC->GetPawn() == nullptr)
+		if (IsValid(PC) && !PC->GetPawn())
 		{
 			UE_LOG(LogTemp, Log, TEXT("Restarting player: %s"), *GetNameSafe(PC));
 			RestartPlayer(PC);
@@ -337,9 +360,7 @@ void ARTGameMode::GenericPlayerInitialization(AController* NewPlayer)
 
 void ARTGameMode::FailedToRestartPlayer(AController* NewPlayer)
 {
-	static TMap<TWeakObjectPtr<AController>, int32> FailedAttempts;
-	
-	int32& Attempts = FailedAttempts.FindOrAdd(NewPlayer);
+	int32& Attempts = FailedRestartAttempts.FindOrAdd(NewPlayer);
 	Attempts++;
 	
 	UE_LOG(LogTemp, Error, TEXT("FailedToRestartPlayer: %s (Attempt %d)"), *GetNameSafe(NewPlayer), Attempts);
